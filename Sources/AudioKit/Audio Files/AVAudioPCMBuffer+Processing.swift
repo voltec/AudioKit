@@ -185,24 +185,27 @@ public extension AVAudioPCMBuffer {
         let totalDuration = Double(self.frameLength) / sampleRate
 
         let sampleTime = 1.0 / sampleRate
-        let fadeInPower = linearRamp ? sampleTime / inTime : exp(log(10) * sampleTime / inTime)
-        let fadeOutPower = linearRamp ? sampleTime / outTime : exp(-log(25) * sampleTime / outTime)
+        let fadePower = linearRamp ? sampleTime / outTime : exp(-log(25) * sampleTime / outTime)
 
         let fadeInBuffer: AVAudioPCMBuffer? = inTime > 0 ? self.extract(from: 0, to: inTime) : nil
         let fadeOutBuffer: AVAudioPCMBuffer? = outTime > 0 ? self.extract(from: totalDuration - outTime, to: totalDuration) : nil
 
         var gain: Double = 1
+        
+        func applyfade(fadeBuffer: AVAudioPCMBuffer, gain: inout Double, index: Int) {
+            gain = linearRamp ? gain - fadePower : gain * fadePower
+            gain = min(max(gain, 0), 1)  // clamp gain between 0 and 1
+            for n in 0 ..< Int(fadeBuffer.format.channelCount) {
+                fadeBuffer.floatChannelData?[n][index] *= Float(gain)
+            }
+        }
 
         // Only FadeIn if inTime was provided
         if let fadeInBuffer = fadeInBuffer {
-            gain = 0.01
-
-            for i in 0 ..< Int(fadeInBuffer.frameLength) {
-                gain = linearRamp ? gain + fadeInPower : gain * fadeInPower
-                gain = min(max(gain, 0), 1)  // clamp gain between 0 and 1
-                for n in 0 ..< Int(fadeInBuffer.format.channelCount) {
-                    fadeInBuffer.floatChannelData?[n][i] *= Float(gain)
-                }
+            gain = 1
+            
+            for i in (0 ..< Int(fadeInBuffer.frameLength)).reversed() {
+                applyfade(fadeBuffer: fadeInBuffer, gain: &gain, index: i)
             }
         }
 
@@ -211,11 +214,7 @@ public extension AVAudioPCMBuffer {
             gain = 1
 
             for i in 0 ..< Int(fadeOutBuffer.frameLength) {
-                gain = linearRamp ? gain - fadeOutPower : gain * fadeOutPower
-                gain = min(max(gain, 0), 1)  // clamp gain between 0 and 1
-                for n in 0 ..< Int(fadeOutBuffer.format.channelCount) {
-                    fadeOutBuffer.floatChannelData?[n][i] *= Float(gain)
-                }
+                applyfade(fadeBuffer: fadeOutBuffer, gain: &gain, index: i)
             }
         }
 
